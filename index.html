@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bangkok Map</title>
+  <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="data.js"></script>
+  <style>
+    html, body, #map { margin: 0; height: 100%; }
+    .maplibregl-popup-content { font: 14px/1.5 system-ui, sans-serif; padding: 10px 14px; max-width: 280px; }
+    .maplibregl-popup-content small { color: #666; }
+    .maplibregl-popup-content p { margin: 6px 0 0; }
+    #panel { position: fixed; top: 12px; left: 12px; z-index: 10; max-width: calc(100% - 24px); max-height: calc(100% - 24px);
+      display: flex; flex-direction: column; background: rgba(255,255,255,.94); backdrop-filter: blur(6px);
+      border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.18); font: 14px/1.5 system-ui, sans-serif; }
+    #panel header { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 14px; }
+    #panel h1 { font-size: 14px; margin: 0; white-space: nowrap; }
+    #sync { flex: none; margin-left: auto; font-size: 10px; color: #bbb; cursor: default; }
+    #sync.ok { color: #1fa463; } #sync.busy { color: #ff8a00; } #sync.err { color: #ff3b30; }
+    #share { flex: none; height: 26px; border: 1px solid #ddd; border-radius: 6px; background: #fff; cursor: pointer; padding: 0 8px; font: 12px system-ui; }
+    #toggle { flex: none; width: 26px; height: 26px; border: 1px solid #ddd; border-radius: 6px; background: #fff; cursor: pointer; font: 18px/1 system-ui; }
+    #panel.closed .days { display: none; }
+    .days { overflow: auto; border-top: 1px solid #eee; }
+    .days details { border-bottom: 1px solid #eee; } .days details:last-child { border: 0; }
+    .days summary { display: flex; justify-content: space-between; padding: 8px 14px; cursor: pointer; list-style: none; font-weight: 600; }
+    .days summary::-webkit-details-marker { display: none; }
+    .days summary::before { content: '▸'; margin-right: 8px; color: #999; } .days details[open] summary::before { content: '▾'; }
+    .days summary span { font-weight: 400; color: #666; font-size: 12px; margin-left: auto; }
+    .days details[open] summary { color: #ff3b30; }
+    .days ol { margin: 0; padding: 0 14px 10px 36px; } .days li { margin: 4px 0; cursor: pointer; }
+    .days li:hover { color: #ff3b30; } .days small { display: block; color: #666; }
+    .days .empty { color: #999; font-size: 13px; padding: 0 14px 10px 36px; }
+    .days summary .sel { margin-left: 10px; border: 1px solid #ddd; border-radius: 999px; background: #fff; padding: 1px 9px; font: 12px system-ui; cursor: pointer; }
+    .days summary .sel.on { background: #ff3b30; border-color: #ff3b30; color: #fff; }
+    .days li { display: flex; gap: 6px; align-items: baseline; } .days li .n { flex: 1; }
+    .days li .rm { color: #bbb; cursor: pointer; padding: 0 4px; } .days li .rm:hover { color: #ff3b30; }
+    .maplibregl-popup-content label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+    .maplibregl-popup-content input { margin: 0; width: 16px; height: 16px; accent-color: #ff3b30; }
+    .maplibregl-popup-content .badge { display: inline-block; font-size: 11px; color: #fff; background: #ff3b30; border-radius: 999px; padding: 0 7px; margin-left: 4px; }
+    .maplibregl-popup-content .head { display: flex; gap: 6px; align-items: center; }
+    .maplibregl-popup-content .copy { border: 0; background: none; padding: 2px; cursor: pointer; color: #888; display: flex; }
+    .maplibregl-popup-content .copy:hover, .maplibregl-popup-content .copy.done { color: #ff3b30; }
+    .pin { cursor: pointer; }
+    .pin .ico { position: absolute; left: 0; top: 4px; width: 27px; text-align: center; font-size: 13px; line-height: 18px; pointer-events: none; }
+    #legend { position: absolute; left: 10px; bottom: 30px; z-index: 2; background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.3); padding: 6px 10px; font: 12px system-ui; }
+    #legend b { display: block; font-size: 11px; color: #888; margin: 4px 0 2px; }
+    #legend b:first-child { margin-top: 0; }
+    #legend .row { display: flex; flex-wrap: wrap; gap: 4px; max-width: 250px; }
+    #legend button { display: flex; align-items: center; gap: 4px; border: 1px solid #ddd; border-radius: 999px; background: #fff; padding: 2px 8px; font: 12px system-ui; cursor: pointer; }
+    #legend button.on { background: #222; border-color: #222; color: #fff; }
+    #legend.filtered button[data-cat]:not(.on) { opacity: .45; }
+    #legend i { width: 10px; height: 10px; border-radius: 50%; }
+    #legend button small { font-size: 10px; opacity: .6; }
+    #legend .count { color: #888; font-size: 11px; margin-top: 4px; }
+    .maplibregl-popup-content .note { white-space: pre-line; }
+    .maplibregl-popup-content .hours { color: #666; font-size: 12px; margin-top: 4px; }
+    .maplibregl-popup-content .hint { color: #999; font-size: 12px; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="legend"></div>
+  <div id="panel" class="closed"><header><h1></h1><span id="sync" title="이 브라우저에만 저장 중">●</span><button id="share" title="지금 일정이 담긴 링크를 복사">공유</button><button id="toggle">+</button></header><div class="days"></div></div>
+  <script>
+    // ?lang=ko|en|ja|zh|th  (기본 ko). 없는 언어는 로마자 → 원어(태국어) 순 fallback
+    const lang = new URLSearchParams(location.search).get('lang') || 'ko';
+    const nameExpr = lang === 'th'
+      ? ['get', 'name']
+      : ['coalesce', ['get', `name:${lang}`], ['get', 'name:latin'], ['get', 'name']];
+    const nameOf = (p) => lang === 'th' ? p.name : (p[`name:${lang}`] || p['name:latin'] || p.name);
+    const label = (o) => lang === 'ko' ? o.ko : o.en;
+
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: 'https://tiles.openfreemap.org/styles/bright',
+      center: [100.545, 13.74],      // 방콕 중심 (스크린샷 뷰)
+      zoom: 12.3,
+      maxBounds: [[99.8, 13.25], [100.95, 14.05]], // 방콕 광역 + 서쪽 담넌싸두억·매끌렁까지
+      attributionControl: { compact: true },
+    });
+    map.addControl(new maplibregl.NavigationControl());
+
+    // 역 중심 + 도로 방향 기준 직사각형 → GeoJSON 폴리곤 (m 단위를 도로 변환)
+    const BEARING = 128 * Math.PI / 180; // 수쿰빗 로드 방향(북 기준 시계방향)
+    const ux = Math.sin(BEARING), uy = Math.cos(BEARING);   // 도로 방향
+    const px = uy, py = -ux;                                 // 북동쪽 직각 방향
+    function rect({ center: [lon, lat], along: [a0, a1], across: [c0, c1] }) {
+      const kx = 111320 * Math.cos(lat * Math.PI / 180), ky = 110540;
+      const pt = (a, c) => [lon + (a * ux + c * px) / kx, lat + (a * uy + c * py) / ky];
+      return [[pt(a0, c0), pt(a1, c0), pt(a1, c1), pt(a0, c1), pt(a0, c0)]];
+    }
+    const areasGeo = { type: 'FeatureCollection', features: SUKHUMVIT.areas.map(a => ({
+      type: 'Feature', properties: { id: a.id, name: label(a), color: a.color, desc: a.desc },
+      geometry: { type: 'Polygon', coordinates: rect(a) } })) };
+    const lineGeo = { type: 'Feature', geometry: { type: 'LineString', coordinates: SUKHUMVIT.line } };
+    const stationsGeo = { type: 'FeatureCollection', features: SUKHUMVIT.stations.map(s => ({
+      type: 'Feature', properties: { name: label(s) }, geometry: { type: 'Point', coordinates: [s.lon, s.lat] } })) };
+
+    map.on('style.load', () => {
+      // 라벨 언어
+      for (const layer of map.getStyle().layers) {
+        if (layer.type === 'symbol' && map.getLayoutProperty(layer.id, 'text-field')) {
+          map.setLayoutProperty(layer.id, 'text-field', nameExpr);
+        }
+      }
+      const firstSymbol = map.getStyle().layers.find(l => l.type === 'symbol').id; // 지도 글자 밑에 깔기
+
+      map.addSource('areas', { type: 'geojson', data: areasGeo });
+      map.addSource('sukhumvit', { type: 'geojson', data: lineGeo });
+      map.addSource('stations', { type: 'geojson', data: stationsGeo });
+
+      map.addLayer({ id: 'areas-fill', type: 'fill', source: 'areas',
+        paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.18 } }, firstSymbol);
+      map.addLayer({ id: 'areas-outline', type: 'line', source: 'areas',
+        paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-dasharray': [3, 2] } }, firstSymbol);
+      map.addLayer({ id: 'sukhumvit-casing', type: 'line', source: 'sukhumvit',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#fff', 'line-width': 10, 'line-opacity': 0.9 } }, firstSymbol);
+      map.addLayer({ id: 'sukhumvit-line', type: 'line', source: 'sukhumvit',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#ff3b30', 'line-width': 5 } }, firstSymbol);
+      map.addLayer({ id: 'stations', type: 'circle', source: 'stations',
+        paint: { 'circle-radius': 5, 'circle-color': '#fff', 'circle-stroke-color': '#ff3b30', 'circle-stroke-width': 3 } });
+      map.addLayer({ id: 'areas-label', type: 'symbol', source: 'areas',
+        layout: { 'text-field': ['get', 'name'], 'text-size': 15, 'text-font': ['Noto Sans Bold'], 'text-allow-overlap': false },
+        paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#fff', 'text-halo-width': 2 } });
+    });
+
+    // ---------- 일정 상태: localStorage ----------
+    const KEY = 'bangkok-map-schedule-v1';
+    const state = Object.assign({ selected: null, days: SCHEDULE.days.map(() => []) },
+      JSON.parse(localStorage.getItem(KEY) || 'null'));
+    const save = () => { localStorage.setItem(KEY, JSON.stringify(state)); queuePush(); };
+    const esc = (t) => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const daysWith = (id) => state.days.map((d, i) => d.some(it => it.id === id) ? i : -1).filter(i => i >= 0);
+
+    // ---------- 패널 ----------
+    const panel = document.getElementById('panel'), toggle = document.getElementById('toggle');
+    panel.querySelector('h1').textContent = SCHEDULE.title;
+    toggle.onclick = () => { panel.classList.toggle('closed'); toggle.textContent = panel.classList.contains('closed') ? '+' : '−'; };
+    const daysEl = panel.querySelector('.days');
+    let dayMarkers = [];
+
+    function render() {
+      const open = [...daysEl.querySelectorAll('details')].map(d => d.open);
+      daysEl.innerHTML = SCHEDULE.days.map((d, i) => {
+        const items = state.days[i];
+        return `<details${open[i] ? ' open' : ''}><summary>${esc(d.label)}<span>${esc(d.date)}</span>
+          <button class="sel${state.selected === i ? ' on' : ''}" data-i="${i}">${state.selected === i ? '선택됨' : '선택'}</button></summary>` +
+          (items.length
+            ? '<ol>' + items.map((it, n) => `<li data-i="${i}" data-n="${n}"><span class="n">${esc(it.name)}${it.note ? `<small>${esc(it.note)}</small>` : ''}</span><span class="rm" title="빼기">×</span></li>`).join('') + '</ol>'
+            : '<div class="empty">이 날을 "선택"하고 지도의 장소 카드에서 체크하세요</div>') + '</details>';
+      }).join('');
+      // 마커: 선택된 날
+      dayMarkers.forEach(m => m.remove());
+      dayMarkers = state.selected == null ? [] : state.days[state.selected].map((it, n) =>
+        new maplibregl.Marker({ color: '#ff3b30' }).setLngLat(it.lngLat)
+          .setPopup(new maplibregl.Popup({ offset: 30 }).setHTML(`<b>${n + 1}. ${esc(it.name)}</b>${it.note ? `<p>${esc(it.note)}</p>` : ''}`)).addTo(map));
+    }
+    daysEl.addEventListener('click', (e) => {
+      const sel = e.target.closest('.sel');
+      if (sel) {
+        e.preventDefault();
+        const i = +sel.dataset.i;
+        state.selected = state.selected === i ? null : i;
+        save(); render();
+        if (state.selected === i) daysEl.querySelectorAll('details')[i].open = true;
+        return;
+      }
+      const li = e.target.closest('li');
+      if (!li) return;
+      const i = +li.dataset.i, n = +li.dataset.n;
+      if (e.target.classList.contains('rm')) { state.days[i].splice(n, 1); save(); render(); return; }
+      map.flyTo({ center: state.days[i][n].lngLat, zoom: 15.5 });
+      if (i === state.selected) dayMarkers[n].togglePopup();
+    });
+    render();
+
+    // ---------- 고정 핀 ----------
+    // 범례 겸 필터: 분류(여러 개 선택) + 시간대(하나 선택). 아무것도 안 고르면 전체 표시
+    const legend = document.getElementById('legend');
+    const filter = { cats: new Set(), slot: null, dow: null };
+    const DOWS = [[4, '목', '1/7'], [5, '금', '1/8'], [6, '토', '1/9'], [0, '일', '1/10'], [1, '월', '1/11'], [2, '화', '1/12'], [3, '수', '']]; // 여행 날짜 순, 0=일
+    legend.innerHTML = '<b>분류</b><div class="row">' +
+      Object.entries(CATS).map(([id, c]) => `<button data-cat="${id}"><i style="background:${c.color}"></i>${c.icon || ''}${esc(c.label)}</button>`).join('') +
+      '</div><b>운영 시간대</b><div class="row">' +
+      SLOTS.map(s => `<button data-slot="${s.id}" title="${s.range[0]}시~${s.range[1]}시">${esc(s.label)}</button>`).join('') +
+      '</div><b>요일 (쉬는 곳 숨김)</b><div class="row">' +
+      DOWS.map(([n, l, date]) => `<button data-dow="${n}" title="${date ? '여행 ' + date : '여행 기간 아님'}">${l}${date ? `<small>${date}</small>` : ''}</button>`).join('') +
+      '</div><div class="count"></div>';
+    const openIn = (p, [s, e]) => (Array.isArray(p.open[0]) ? p.open : [p.open]).some(([a, b]) => (a < e && b > s) || (a < e + 24 && b > s + 24));
+    function applyFilter() {
+      const slot = SLOTS.find(s => s.id === filter.slot);
+      let shown = 0;
+      PINS.forEach(p => {
+        const ok = (!filter.cats.size || filter.cats.has(p.cat)) && (!slot || openIn(p, slot.range)) && (filter.dow == null || !(p.closed || []).includes(filter.dow));
+        p.marker.getElement().style.display = ok ? '' : 'none';
+        shown += ok;
+      });
+      legend.classList.toggle('filtered', filter.cats.size > 0);
+      legend.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.cat ? filter.cats.has(b.dataset.cat) : b.dataset.slot ? filter.slot === b.dataset.slot : filter.dow === +b.dataset.dow));
+      legend.querySelector('.count').textContent = `${shown} / ${PINS.length}곳 표시` + (filter.cats.size || slot || filter.dow != null ? ' · 다시 누르면 해제' : '');
+    }
+    legend.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.cat) filter.cats.has(b.dataset.cat) ? filter.cats.delete(b.dataset.cat) : filter.cats.add(b.dataset.cat);
+      else if (b.dataset.slot) filter.slot = filter.slot === b.dataset.slot ? null : b.dataset.slot;
+      else filter.dow = filter.dow === +b.dataset.dow ? null : +b.dataset.dow;
+      applyFilter();
+    });
+    const pinItem = (p) => ({ id: `pin:${p.id}`, name: p.name, lngLat: p.lngLat, note: p.note, gmap: p.gmap });
+    PINS.forEach(p => {
+      const cat = CATS[p.cat];
+      const m = new maplibregl.Marker({ color: cat.color }).setLngLat(p.lngLat).addTo(map);
+      m.getElement().classList.add('pin'); m.getElement().dataset.pin = p.id;
+      p.marker = m;
+      if (cat.icon) m.getElement().insertAdjacentHTML('beforeend', `<span class="ico">${cat.icon}</span>`);
+    });
+    applyFilter();
+
+    // ---------- 일정 공유: 일정을 주소 뒤(#s=...)에 담아 링크로 전달. 서버 저장 없음 ----------
+    // 핀·구역은 id만, 지도에서 직접 고른 장소는 [id, 이름, 경도, 위도, 메모]로 담는다
+    const b64 = { enc: (s) => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+                  dec: (s) => decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/')))) };
+    const packItem = (it) => /^(pin|area):/.test(it.id) ? it.id : [it.id, it.name, +it.lngLat[0].toFixed(5), +it.lngLat[1].toFixed(5), it.note || ''];
+    function unpackItem(x) {
+      if (Array.isArray(x)) return { id: x[0], name: x[1], lngLat: [x[2], x[3]], note: x[4] };
+      const [kind, id] = [x.slice(0, x.indexOf(':')), x.slice(x.indexOf(':') + 1)];
+      if (kind === 'pin') { const p = PINS.find(p => p.id === id); return p && pinItem(p); }
+      const a = SUKHUMVIT.areas.find(a => a.id === id);
+      return a && { id: x, name: label(a), lngLat: a.center, note: '구역' };
+    }
+    // ---------- 일정 동기화: Supabase 테이블 한 줄에 일정 전체를 저장 ----------
+    // ponytail: 실시간 구독 대신 20초마다·탭으로 돌아올 때 다시 읽는다. 둘이 동시에 고치면 나중에 저장한 쪽이 이김.
+    // 동시 편집이 잦아지면 supabase-js 실시간 구독 + 항목 단위 병합으로 바꿀 것.
+    const syncOn = !!(SUPABASE.url && SUPABASE.key);
+    const syncEl = document.getElementById('sync');
+    const syncStatus = (cls, tip) => { syncEl.className = cls; syncEl.title = tip; };
+    const packed = () => JSON.stringify(state.days.map(d => d.map(packItem)));
+    const api = (query, opt = {}) => fetch(`${SUPABASE.url}/rest/v1/schedules${query}`, { ...opt,
+      headers: { apikey: SUPABASE.key, Authorization: `Bearer ${SUPABASE.key}`, 'Content-Type': 'application/json', ...opt.headers } })
+      .then(r => { if (!r.ok) throw new Error(r.status); return r; });
+    let synced = null, dirty = false, pushTimer = null; // synced: 서버와 마지막으로 맞춘 내용
+    async function pull() {
+      if (!syncOn || dirty) return;
+      try {
+        const rows = await (await api(`?id=eq.${encodeURIComponent(SUPABASE.id)}&select=days`)).json();
+        if (dirty) return; // 읽는 사이에 내가 고쳤으면 내 것을 먼저 올린다
+        if (!rows.length) { if (state.days.some(d => d.length)) { dirty = true; push(); } else syncStatus('ok', '동기화됨'); return; }
+        const remote = JSON.stringify(rows[0].days);
+        if (remote !== packed()) {
+          state.days = SCHEDULE.days.map((_, i) => (rows[0].days[i] || []).map(unpackItem).filter(Boolean));
+          localStorage.setItem(KEY, JSON.stringify(state)); render();
+        }
+        synced = remote; syncStatus('ok', '동기화됨');
+      } catch (e) { syncStatus('err', '동기화 실패 (인터넷 또는 Supabase 설정 확인). 이 브라우저에는 저장됨'); }
+    }
+    async function push() {
+      const body = packed();
+      try {
+        await api('', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+          body: JSON.stringify({ id: SUPABASE.id, days: JSON.parse(body), updated_at: new Date().toISOString() }) });
+        synced = body;
+        if (packed() === body) { dirty = false; syncStatus('ok', '동기화됨'); } else queuePush(); // 올리는 사이에 또 고쳤으면 다시
+      } catch (e) { syncStatus('err', '저장 실패 (인터넷 또는 Supabase 설정 확인). 이 브라우저에는 저장됨'); }
+    }
+    function queuePush() {
+      if (!syncOn || packed() === synced) return; // Day 선택만 바뀐 경우는 올리지 않는다
+      dirty = true; syncStatus('busy', '저장 중…');
+      clearTimeout(pushTimer); pushTimer = setTimeout(push, 600);
+    }
+    if (syncOn) {
+      pull();
+      setInterval(pull, 20000);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) pull(); });
+    }
+
+    const shareUrl = () => location.href.split('#')[0] + '#s=' + b64.enc(JSON.stringify(state.days.map(d => d.map(packItem))));
+    const shareBtn = document.getElementById('share');
+    shareBtn.onclick = () => navigator.clipboard.writeText(shareUrl()).then(() => {
+      shareBtn.textContent = '링크 복사됨'; setTimeout(() => { shareBtn.textContent = '공유'; }, 1500);
+    });
+    // 공유 링크로 들어온 경우: 내 일정이 비어 있으면 바로 적용, 있으면 물어보고 바꾼다
+    (function loadShared() {
+      const m = location.hash.match(/^#s=(.+)$/);
+      if (!m) return;
+      let days;
+      try { days = JSON.parse(b64.dec(m[1])).map(d => d.map(unpackItem).filter(Boolean)); } catch (e) { return; }
+      const mine = state.days.some(d => d.length);
+      const same = JSON.stringify(days.map(d => d.map(i => i.id))) === JSON.stringify(state.days.map(d => d.map(i => i.id)));
+      if (!same && (!mine || confirm('공유받은 일정으로 바꿀까요?\n지금 이 브라우저에 저장된 내 일정은 사라져요.'))) {
+        state.days = SCHEDULE.days.map((_, i) => days[i] || []);
+        save(); render();
+      }
+      history.replaceState(null, '', location.href.split('#')[0]); // 주소에서 일정 떼기 (이후 수정과 헷갈리지 않게)
+    })();
+
+    const COPY_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+    // 구글맵 링크: 핀은 지정 링크, 그 외는 이름+좌표 검색 링크
+    const gmapOf = (it) => it.gmap || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(it.name)}&center=${it.lngLat[1]},${it.lngLat[0]}`;
+
+    // ---------- 지도 클릭 → 카드 (체크박스로 선택된 날에 태깅) ----------
+    map.on('click', (e) => {
+      const feats = map.queryRenderedFeatures(e.point);
+      const poi = feats.find(f => f.source !== 'areas' && f.properties.name);
+      const pinEl = e.originalEvent.target.closest('.pin');
+      const pin = pinEl ? PINS.find(x => x.id === pinEl.dataset.pin) : poi && PINS.find(x => x.th === poi.properties.name);
+      let item, body, at = e.lngLat;
+      if (pin) {
+        item = pinItem(pin); at = pin.lngLat;
+        body = `<div class="note">${esc(pin.note)}</div>${pin.hours ? `<div class="hours">운영 ${esc(pin.hours)}</div>` : ''}`;
+      } else if (poi) {
+        const p = poi.properties, title = nameOf(p);
+        const sub = [p.class, p.subclass].filter(Boolean).join(' · ');
+        const ll = poi.geometry.type === 'Point' ? poi.geometry.coordinates : [e.lngLat.lng, e.lngLat.lat];
+        item = { id: `poi:${p.name}:${ll[0].toFixed(4)},${ll[1].toFixed(4)}`, name: title, lngLat: ll, note: sub };
+        body = `${p.name !== title ? `${esc(p.name)}<br>` : ''}${sub ? `<small>${esc(sub)}</small>` : ''}`;
+      } else {
+        const a = feats.find(f => f.source === 'areas');
+        if (!a) return;
+        const src = SUKHUMVIT.areas.find(x => x.id === a.properties.id);
+        item = { id: `area:${src.id}`, name: a.properties.name, lngLat: src.center, note: '구역',
+          gmap: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`BTS ${src.en} Station`)}` }; // 구역 = 해당 BTS역
+        body = `<p>${esc(a.properties.desc)}</p>`;
+      }
+      const inDays = daysWith(item.id), sel = state.selected;
+      const checked = sel != null && inDays.includes(sel);
+      const badges = inDays.map(i => `<span class="badge">${esc(SCHEDULE.days[i].label)}</span>`).join('');
+      const html = `<div class="head"><label><input type="checkbox"${checked ? ' checked' : ''}${sel == null ? ' disabled' : ''}><b>${esc(item.name)}</b>${badges}</label>` +
+        `<button class="copy" title="구글맵 주소 복사">${COPY_ICON}</button></div>${body}` +
+        (sel == null ? '<div class="hint">패널에서 Day를 "선택"하면 체크해서 담을 수 있어요</div>' : '');
+      const popup = new maplibregl.Popup({ offset: pinEl ? 30 : 0 }).setLngLat(at).setHTML(html).addTo(map);
+      const cb = popup.getElement().querySelector('input');
+      const copy = popup.getElement().querySelector('.copy');
+      copy.onclick = () => navigator.clipboard.writeText(gmapOf(item)).then(() => {
+        copy.textContent = '✓'; copy.classList.add('done');
+        setTimeout(() => { copy.innerHTML = COPY_ICON; copy.classList.remove('done'); }, 1200);
+      });
+      cb.onchange = () => {
+        const list = state.days[state.selected];
+        const idx = list.findIndex(it => it.id === item.id);
+        if (cb.checked && idx < 0) list.push(item); else if (!cb.checked && idx >= 0) list.splice(idx, 1);
+        save(); render();
+        const b = cb.parentElement; b.querySelectorAll('.badge').forEach(x => x.remove());
+        b.insertAdjacentHTML('beforeend', daysWith(item.id).map(i => `<span class="badge">${esc(SCHEDULE.days[i].label)}</span>`).join(''));
+      };
+    });
+
+    map.on('mousemove', (e) => {
+      map.getCanvas().style.cursor =
+        map.queryRenderedFeatures(e.point).some(f => f.properties.name) ? 'pointer' : '';
+    });
+  </script>
+</body>
+</html>
