@@ -18,8 +18,8 @@
       display: flex; flex-direction: column; background: rgba(255,255,255,.94); backdrop-filter: blur(6px);
       border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.18); font: 14px/1.5 system-ui, sans-serif; }
     #panel header { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 14px; }
-    #panel h1 { font-size: 14px; margin: 0; white-space: nowrap; }
-    #sync { flex: none; margin-left: auto; font-size: 10px; color: #bbb; cursor: default; }
+    #panel h1 { font-size: 14px; margin: 0; flex: 1; min-width: 0; } /* 좁은 화면에서는 줄바꿈 → 버튼이 화면 밖으로 밀리지 않음 */
+    #sync { flex: none; font-size: 10px; color: #bbb; cursor: default; }
     #sync.ok { color: #1fa463; } #sync.busy { color: #ff8a00; } #sync.err { color: #ff3b30; }
     #share { flex: none; height: 26px; border: 1px solid #ddd; border-radius: 6px; background: #fff; cursor: pointer; padding: 0 8px; font: 12px system-ui; }
     #toggle { flex: none; width: 26px; height: 26px; border: 1px solid #ddd; border-radius: 6px; background: #fff; cursor: pointer; font: 18px/1 system-ui; }
