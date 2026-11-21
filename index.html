@@ -47,6 +47,8 @@
     .pin { cursor: pointer; }
     .pin .ico { position: absolute; left: 0; top: 4px; width: 27px; text-align: center; font-size: 13px; line-height: 18px; pointer-events: none; }
     #legend { position: absolute; left: 10px; bottom: 30px; z-index: 2; background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.3); padding: 6px 10px; font: 12px system-ui; }
+    .pin .num { display: none; position: absolute; top: -7px; right: -7px; min-width: 17px; height: 17px; padding: 0 4px; box-sizing: border-box; border-radius: 999px; background: #ff3b30; color: #fff; font: 600 11px/17px system-ui; text-align: center; box-shadow: 0 0 0 2px #fff; pointer-events: none; }
+    .pin.inday .num { display: block; }
     #legend b { display: block; font-size: 11px; color: #888; margin: 4px 0 2px; }
     #legend summary { cursor: pointer; font-weight: 600; white-space: nowrap; }
     #legend details[open] summary { margin-bottom: 4px; }
@@ -135,6 +137,9 @@
     const KEY = 'bangkok-map-schedule-v1';
     const state = Object.assign({ selected: null, days: SCHEDULE.days.map(() => []) },
       JSON.parse(localStorage.getItem(KEY) || 'null'));
+    state.selected = null; // 편집 중인 Day. 페이지를 열 때는 항상 보기 상태로 시작
+    let viewDay = null;    // 패널에서 펼쳐 보고 있는 Day
+    let pinsReady = false;
     const save = () => { localStorage.setItem(KEY, JSON.stringify(state)); queuePush(); };
     const esc = (t) => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const daysWith = (id) => state.days.map((d, i) => d.some(it => it.id === id) ? i : -1).filter(i => i >= 0);
@@ -146,21 +151,42 @@
     const daysEl = panel.querySelector('.days');
     let dayMarkers = [];
 
+    // 지도 표시 규칙
+    //  - Day를 펼치기만 했을 때: 그 Day에 담은 장소만 표시
+    //  - "추가/수정"을 눌렀을 때: 모든 핀 표시 (필터 적용), 체크박스로 담고 뺌
+    //  - 아무 Day도 안 펼쳤을 때: 모든 핀 표시 (필터 적용)
     function render() {
-      const open = [...daysEl.querySelectorAll('details')].map(d => d.open);
       daysEl.innerHTML = SCHEDULE.days.map((d, i) => {
-        const items = state.days[i];
-        return `<details${open[i] ? ' open' : ''}><summary>${esc(d.label)}<span>${esc(d.date)}</span>
-          <button class="sel${state.selected === i ? ' on' : ''}" data-i="${i}">${state.selected === i ? '선택됨' : '선택'}</button></summary>` +
+        const items = state.days[i], editing = state.selected === i;
+        return `<details${viewDay === i ? ' open' : ''} data-i="${i}"><summary>${esc(d.label)}<span>${esc(d.date)}</span>
+          <button class="sel${editing ? ' on' : ''}" data-i="${i}">${editing ? '완료' : '추가/수정'}</button></summary>` +
           (items.length
             ? '<ol>' + items.map((it, n) => `<li data-i="${i}" data-n="${n}"><span class="n">${esc(it.name)}${it.note ? `<small>${esc(it.note)}</small>` : ''}</span><span class="rm" title="빼기">×</span></li>`).join('') + '</ol>'
-            : '<div class="empty">이 날을 "선택"하고 지도의 장소 카드에서 체크하세요</div>') + '</details>';
+            : '<div class="empty">"추가/수정"을 누르고 지도의 장소 카드에서 체크하세요</div>') + '</details>';
       }).join('');
-      // 마커: 선택된 날
+      // 빨간 마커: 보고 있는 Day의 장소 중 고정 핀이 아닌 것 (고정 핀은 핀 자체에 순번 배지가 붙는다)
+      const day = state.selected ?? viewDay;
       dayMarkers.forEach(m => m.remove());
-      dayMarkers = state.selected == null ? [] : state.days[state.selected].map((it, n) =>
+      dayMarkers = day == null ? [] : state.days[day].map((it, n) => it.id.startsWith('pin:') ? null :
         new maplibregl.Marker({ color: '#ff3b30' }).setLngLat(it.lngLat)
-          .setPopup(new maplibregl.Popup({ offset: 30 }).setHTML(`<b>${n + 1}. ${esc(it.name)}</b>${it.note ? `<p>${esc(it.note)}</p>` : ''}`)).addTo(map));
+          .setPopup(new maplibregl.Popup({ offset: 30 }).setHTML(`<b>${n + 1}. ${esc(it.name)}</b>${it.note ? `<p>${esc(it.note)}</p>` : ''}`)).addTo(map)).filter(Boolean);
+      if (pinsReady) applyFilter();
+    }
+    // Day를 펼치거나 접으면 보기 대상이 바뀐다. 다른 Day를 펼치면 편집은 끝난다
+    daysEl.addEventListener('toggle', (e) => {
+      const i = +e.target.dataset.i;
+      const next = e.target.open ? i : (viewDay === i ? null : viewDay);
+      if (next === viewDay) return;
+      viewDay = next;
+      if (state.selected != null && state.selected !== viewDay) state.selected = null;
+      render();
+      if (viewDay != null) fitDay(viewDay);
+    }, true);
+    function fitDay(i) {
+      const pts = state.days[i].map(it => it.lngLat);
+      if (!pts.length) return;
+      const b = pts.reduce((b, p) => b.extend(p), new maplibregl.LngLatBounds(pts[0], pts[0]));
+      map.fitBounds(b, { padding: 80, maxZoom: 14.5 });
     }
     daysEl.addEventListener('click', (e) => {
       const sel = e.target.closest('.sel');
@@ -168,8 +194,8 @@
         e.preventDefault();
         const i = +sel.dataset.i;
         state.selected = state.selected === i ? null : i;
-        save(); render();
-        if (state.selected === i) daysEl.querySelectorAll('details')[i].open = true;
+        viewDay = i; // 편집을 켜든 끄든 그 Day는 펼쳐 둔다
+        render();
         return;
       }
       const li = e.target.closest('li');
@@ -177,7 +203,6 @@
       const i = +li.dataset.i, n = +li.dataset.n;
       if (e.target.classList.contains('rm')) { state.days[i].splice(n, 1); save(); render(); return; }
       map.flyTo({ center: state.days[i][n].lngLat, zoom: 15.5 });
-      if (i === state.selected) dayMarkers[n].togglePopup();
     });
     render();
 
@@ -196,15 +221,23 @@
     const openIn = (p, [s, e]) => (Array.isArray(p.open[0]) ? p.open : [p.open]).some(([a, b]) => (a < e && b > s) || (a < e + 24 && b > s + 24));
     function applyFilter() {
       const slot = SLOTS.find(s => s.id === filter.slot);
+      const editing = state.selected != null, day = state.selected ?? viewDay;
+      const viewOnly = day != null && !editing; // Day를 펼쳐 보기만 하는 상태: 필터 대신 그 Day의 장소만
+      const order = new Map(day == null ? [] : state.days[day].map((it, n) => [it.id, n + 1]));
       let shown = 0;
       PINS.forEach(p => {
-        const ok = (!filter.cats.size || filter.cats.has(p.cat)) && (!slot || openIn(p, slot.range)) && (filter.dow == null || !(p.closed || []).includes(filter.dow));
-        p.marker.getElement().style.display = ok ? '' : 'none';
+        const n = order.get('pin:' + p.id), el = p.marker.getElement();
+        const ok = viewOnly ? !!n
+          : (!filter.cats.size || filter.cats.has(p.cat)) && (!slot || openIn(p, slot.range)) && (filter.dow == null || !(p.closed || []).includes(filter.dow));
+        el.style.display = ok ? '' : 'none';
+        el.classList.toggle('inday', !!n);
+        el.querySelector('.num').textContent = n || '';
         shown += ok;
       });
       legend.classList.toggle('filtered', filter.cats.size > 0);
       legend.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.cat ? filter.cats.has(b.dataset.cat) : b.dataset.slot ? filter.slot === b.dataset.slot : filter.dow === +b.dataset.dow));
-      legend.querySelector('.count').textContent = `${shown} / ${PINS.length}곳` + (filter.cats.size || slot || filter.dow != null ? ' · 켜짐' : '');
+      legend.querySelector('.count').textContent = viewOnly ? `${SCHEDULE.days[day].label} 일정만 표시 중`
+        : `${shown} / ${PINS.length}곳` + (filter.cats.size || slot || filter.dow != null ? ' · 켜짐' : '');
     }
     legend.addEventListener('click', (e) => {
       const b = e.target.closest('button');
@@ -220,8 +253,9 @@
       const m = new maplibregl.Marker({ color: cat.color }).setLngLat(p.lngLat).addTo(map);
       m.getElement().classList.add('pin'); m.getElement().dataset.pin = p.id;
       p.marker = m;
-      if (cat.icon) m.getElement().insertAdjacentHTML('beforeend', `<span class="ico">${cat.icon}</span>`);
+      m.getElement().insertAdjacentHTML('beforeend', `${cat.icon ? `<span class="ico">${cat.icon}</span>` : ''}<span class="num"></span>`);
     });
+    pinsReady = true;
     applyFilter();
 
     // ---------- 일정 공유: 일정을 주소 뒤(#s=...)에 담아 링크로 전달. 서버 저장 없음 ----------
@@ -334,7 +368,7 @@
       const badges = inDays.map(i => `<span class="badge">${esc(SCHEDULE.days[i].label)}</span>`).join('');
       const html = `<div class="head"><label><input type="checkbox"${checked ? ' checked' : ''}${sel == null ? ' disabled' : ''}><b>${esc(item.name)}</b>${badges}</label>` +
         `<a class="gmap" href="${esc(gmapOf(item))}" target="_blank" rel="noopener" title="구글맵에서 열기">${OPEN_ICON}</a></div>${body}` +
-        (sel == null ? '<div class="hint">패널에서 Day를 "선택"하면 체크해서 담을 수 있어요</div>' : '');
+        (sel == null ? '<div class="hint">패널에서 Day의 "추가/수정"을 누르면 체크해서 담을 수 있어요</div>' : '');
       const popup = new maplibregl.Popup({ offset: pinEl ? 30 : 0 }).setLngLat(at).setHTML(html).addTo(map);
       const cb = popup.getElement().querySelector('input');
       cb.onchange = () => {
