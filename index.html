@@ -42,8 +42,8 @@
     .maplibregl-popup-content input { margin: 0; width: 16px; height: 16px; accent-color: #ff3b30; }
     .maplibregl-popup-content .badge { display: inline-block; font-size: 11px; color: #fff; background: #ff3b30; border-radius: 999px; padding: 0 7px; margin-left: 4px; }
     .maplibregl-popup-content .head { display: flex; gap: 6px; align-items: center; }
-    .maplibregl-popup-content .copy { border: 0; background: none; padding: 2px; cursor: pointer; color: #888; display: flex; }
-    .maplibregl-popup-content .copy:hover, .maplibregl-popup-content .copy.done { color: #ff3b30; }
+    .maplibregl-popup-content .gmap { padding: 2px; color: #888; display: flex; }
+    .maplibregl-popup-content .gmap:hover { color: #ff3b30; }
     .pin { cursor: pointer; }
     .pin .ico { position: absolute; left: 0; top: 4px; width: 27px; text-align: center; font-size: 13px; line-height: 18px; pointer-events: none; }
     #legend { position: absolute; left: 10px; bottom: 30px; z-index: 2; background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.3); padding: 6px 10px; font: 12px system-ui; }
@@ -301,8 +301,8 @@
       history.replaceState(null, '', location.href.split('#')[0]); // 주소에서 일정 떼기 (이후 수정과 헷갈리지 않게)
     })();
 
-    const COPY_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
-    // 구글맵 링크: 핀은 지정 링크, 그 외는 이름+좌표 검색 링크
+    const OPEN_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
+    // 구글맵 링크 (카드의 열기 아이콘): 핀은 지정 링크, 그 외는 이름 검색 링크
     const gmapOf = (it) => it.gmap || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(it.name)}&center=${it.lngLat[1]},${it.lngLat[0]}`;
 
     // ---------- 지도 클릭 → 카드 (체크박스로 선택된 날에 태깅) ----------
@@ -333,15 +333,10 @@
       const checked = sel != null && inDays.includes(sel);
       const badges = inDays.map(i => `<span class="badge">${esc(SCHEDULE.days[i].label)}</span>`).join('');
       const html = `<div class="head"><label><input type="checkbox"${checked ? ' checked' : ''}${sel == null ? ' disabled' : ''}><b>${esc(item.name)}</b>${badges}</label>` +
-        `<button class="copy" title="구글맵 주소 복사">${COPY_ICON}</button></div>${body}` +
+        `<a class="gmap" href="${esc(gmapOf(item))}" target="_blank" rel="noopener" title="구글맵에서 열기">${OPEN_ICON}</a></div>${body}` +
         (sel == null ? '<div class="hint">패널에서 Day를 "선택"하면 체크해서 담을 수 있어요</div>' : '');
       const popup = new maplibregl.Popup({ offset: pinEl ? 30 : 0 }).setLngLat(at).setHTML(html).addTo(map);
       const cb = popup.getElement().querySelector('input');
-      const copy = popup.getElement().querySelector('.copy');
-      copy.onclick = () => navigator.clipboard.writeText(gmapOf(item)).then(() => {
-        copy.textContent = '✓'; copy.classList.add('done');
-        setTimeout(() => { copy.innerHTML = COPY_ICON; copy.classList.remove('done'); }, 1200);
-      });
       cb.onchange = () => {
         const list = state.days[state.selected];
         const idx = list.findIndex(it => it.id === item.id);
